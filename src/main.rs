@@ -38,11 +38,15 @@ fn walk(path: &Path) -> anyhow::Result<()> {
         };
 
         if file_name == ".git" {
+            let path_str = format!("{path:?}");
+
+            println!("{path_str}");
+
             Command::new("git")
                 .arg("gc")
                 .current_dir(&path)
                 .spawn()
-                .with_context(|| format!("git gc {path:?}"))?;
+                .context(path_str)?;
             continue;
         }
 
