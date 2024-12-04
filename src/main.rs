@@ -9,48 +9,70 @@ use clap::Parser;
 #[derive(Parser)]
 struct Args {
     root: PathBuf,
+
+    #[arg(long)]
+    dry_run: bool,
 }
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    walk(&args.root)
+    let mut gits = vec![];
+
+    println!("finding gits");
+
+    find_gits(&mut gits, &args.root).context("find gits")?;
+
+    let mut current = 0usize;
+    let total = gits.len();
+
+    for git in gits {
+        current += 1;
+
+        if !args.dry_run {
+            println!();
+        }
+
+        println!("{current}/{total}: {git:?}");
+
+        if args.dry_run {
+            continue;
+        }
+
+        Command::new("git")
+            .arg("gc")
+            .current_dir(&git)
+            .spawn()
+            .context("run git gc")?
+            .wait()
+            .context("wait git gc")?;
+    }
+
+    Ok(())
 }
 
-fn walk(path: &Path) -> anyhow::Result<()> {
-    let Ok(dir) = std::fs::read_dir(path) else {
+fn find_gits(gits: &mut Vec<PathBuf>, dir: &Path) -> anyhow::Result<()> {
+    let Ok(iter) = std::fs::read_dir(dir) else {
         return Ok(());
     };
 
-    for e in dir.flatten() {
+    for e in iter.flatten() {
         let path = e.path();
-
-        let Ok(m) = e.metadata() else {
-            continue;
-        };
-
-        if !m.is_dir() {
-            continue;
-        };
 
         let Some(file_name) = path.file_name() else {
             continue;
         };
 
-        if file_name == ".git" {
-            let path_str = format!("{path:?}");
-
-            println!("{path_str}");
-
-            Command::new("git")
-                .arg("gc")
-                .current_dir(&path)
-                .spawn()
-                .context(path_str)?;
+        if !e.file_type().is_ok_and(|t| t.is_dir()) {
             continue;
         }
 
-        walk(&path)?;
+        if file_name == ".git" {
+            gits.push(dir.to_owned());
+            continue;
+        }
+
+        find_gits(gits, &path)?;
     }
 
     Ok(())
